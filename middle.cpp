@@ -6,10 +6,65 @@
 #include <string.h>
 #include <thread>
 #include <netdb.h>	//hostent
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <vector>
 #include <list>
 
 
+
+void sslreadnwrite(SSL* dest, SSL* source, const char* sourceName)
+{
+    char buff[1024*100] = {0};
+    
+    while(1)
+    {      
+        int res = SSL_read ( source, buff, sizeof(buff)-1);
+        //std::cout << "read server " << res << std::endl;
+        if (res > 0)
+        {
+            buff[res] = 0;
+            char bufcopy[1024*100];
+            memcpy(bufcopy, buff, sizeof(bufcopy));
+            for (int i=0; i<res; i++)
+            {
+                if (bufcopy[i] < 0x20)
+                {
+                    bufcopy[i] = '.';
+                }
+            }
+            std::cout << bufcopy << std::endl;
+            int resWrite = SSL_write (dest, buff, res);
+            if (resWrite != res)
+            {
+                std::cout << std::endl<< std::endl << "WRITE PROBLEM " << sourceName << " "<<resWrite << " " << res << " " << errno << std::endl<< std::endl << std::endl;
+                
+                ERR_print_errors_fp(stderr);
+                exit(-1);
+
+            }
+        }
+        else if (res == 0)
+        {
+            // disconnect
+            std::cout << "sock server disconnect" << std::endl;
+            break;
+        }
+        else
+        {
+            // socket invalid
+            std::cout << "sock server invalid" << std::endl;
+            break;
+        }
+    }
+}
+
+
+
+
+
+    
+    
 void readnwrite(int& dest, int& source)
 {
     char buff[1024*100] = {0};
@@ -55,6 +110,8 @@ public:
     Connection()
         : m_sock_server(-1)
         , m_sock_web(-1)
+        , m_sslServer(nullptr)
+        , m_sslClient(nullptr)
         , m_t1(nullptr)
         , m_t2(nullptr)
     {
@@ -75,14 +132,16 @@ public:
         delete m_t2;
     }
     
-    void init(int &sock_server, const char* hostname, int port)
+    void init(int sock_server, SSL* sslServer, const char* hostname, int port, SSL_CTX* ctxClient)
     {
         std::cout << "in init" << std::endl;
         m_sock_server = sock_server;
+        m_sslServer = sslServer;
         
         struct sockaddr_in serv_addr;
             
         m_sock_web = socket(AF_INET, SOCK_STREAM, 0);
+        m_sslClient = SSL_new(ctxClient);
         
         std::cout << "HOSTBYNAME " << std::endl;
 
@@ -102,14 +161,25 @@ public:
         
         std::cout << "CONNECT... " << std::endl;
         int resConnect = connect( m_sock_web, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+        
+        SSL_set_fd(m_sslClient, m_sock_web);
+        int status = SSL_connect(m_sslClient);
+        if (status != 1)
+        {
+            SSL_get_error(m_sslClient, status);
+            fprintf(stderr, "SSL_connect failed with SSL_get_error code %d\n", status);
+        }
+        
         std::cout << "CONNECTED " << resConnect << std::endl;
         
         m_t1 = new std::thread([this] () {
-            readnwrite(m_sock_server, m_sock_web);
+            //readnwrite(m_sock_server, m_sock_web);
+            sslreadnwrite(m_sslServer, m_sslClient, "Client");
             terminate();
         });
         m_t2 = new std::thread([this] () {
-            readnwrite(m_sock_web, m_sock_server);
+            //readnwrite(m_sock_web, m_sock_server);
+            sslreadnwrite(m_sslClient, m_sslServer, "Server");
             terminate();
         });
     }
@@ -118,11 +188,13 @@ public:
     {
         if (m_sock_server != -1)
         {
+            //SSL_free(m_sslServer);
             ::close(m_sock_server);
             m_sock_server = -1;
         }
         if (m_sock_web != -1)
         {
+            //SSL_free(m_sslClient);
             ::close(m_sock_web);
             m_sock_web = -1;
         }
@@ -131,15 +203,76 @@ public:
 private:
     int m_sock_server;
     int m_sock_web;
+    SSL* m_sslServer;
+    SSL* m_sslClient;
     std::thread* m_t1;
     std::thread* m_t2;
 };
 
 
+
+
+SSL_CTX* createContextServer()
+{
+    const SSL_METHOD *method;
+    SSL_CTX *ctx;
+
+    method = SSLv23_server_method();
+
+    ctx = SSL_CTX_new(method);
+    if (!ctx) 
+    {
+	    perror("Unable to create SSL context");
+	    exit(EXIT_FAILURE);
+    }
+
+    return ctx;
+}
+
+SSL_CTX* createContextClient()
+{
+    const SSL_METHOD *method;
+    SSL_CTX *ctx;
+
+    method = TLS_client_method();
+
+    ctx = SSL_CTX_new(method);
+    if (!ctx) 
+    {
+	    perror("Unable to create SSL context");
+	    exit(EXIT_FAILURE);
+    }
+
+    return ctx;
+}
+
+
+void configureServerContext(SSL_CTX *ctx)
+{
+    SSL_CTX_set_ecdh_auto(ctx, 1);
+
+    /* Set the key and cert */
+    if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
+        fprintf(stderr, "error cert");
+	    exit(EXIT_FAILURE);
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(ctx, "privkey.pem", SSL_FILETYPE_PEM) <= 0 ) {
+        fprintf(stderr, "error key");
+	    exit(EXIT_FAILURE);
+    }
+}
+
+
+
 int main()
 {
-    int sock_web = 0;
-    int sock_server = 0;
+    SSL_load_error_strings();	
+    OpenSSL_add_ssl_algorithms();
+    SSL_CTX* ctxServer = createContextServer();
+    SSL_CTX* ctxClient = createContextClient();
+    configureServerContext(ctxServer);
+
 
     int server_fd = -1;
     struct sockaddr_in address;
@@ -158,20 +291,30 @@ int main()
     address.sin_port = htons( 443 );
 
     bind( server_fd, (struct sockaddr *)&address, sizeof(address));
-    listen( server_fd, 30);
+    listen( server_fd, 300);
     
     std::list<Connection> connections;
     
     while(1)
     {
         std::cout << "WAIT..." << std::endl;
-        sock_server = accept ( server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+        int sock_server = accept ( server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
         std::cout << "ACCEPT" << std::endl;
+        
+        SSL* sslServer = SSL_new(ctxServer);
+        SSL_set_fd(sslServer,sock_server);
+        if (SSL_accept(sslServer) <= 0) 
+        {
+            fprintf(stderr, "Error at SSL_accept\n");
+            ERR_print_errors_fp(stderr);
+            exit(-1);
+        }    
+        
         connections.resize(connections.size() + 1);
         std::cout << "\nnew connection created" << std::endl;
         Connection& connection = connections.back();
         std::cout << "\ninit" << std::endl;
-        connection.init(sock_server, "62.181.152.213", 443);
+        connection.init(sock_server, sslServer, "195.200.33.6", 443, ctxClient);
     }
     
     std::cout << "end" << std::endl;
