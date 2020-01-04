@@ -6,6 +6,7 @@ pipeline {
         stage('Build') {
             steps{
                 sh 'echo cmake...'
+                sh 'rm -rf build'
                 sh 'mkdir build'
                 sh 'cd build'
                 sh 'cmake ..'
