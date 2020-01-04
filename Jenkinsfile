@@ -5,7 +5,12 @@ pipeline {
           
         stage('Build') {
             steps{
-                sh 'echo MyBuild'
+                sh 'echo cmake...'
+                sh 'mkdir build'
+                sh 'cd build'
+                sh 'cmake ..'
+                sh 'make'
+                
             }
         }
         
