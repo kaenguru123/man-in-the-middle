@@ -5,16 +5,18 @@ pipeline {
           
         stage('Build') {
             steps{
-                sh 'echo cmake...'
-                sh 'pwd'
-                sh 'sudo rm -rf build'
-                sh 'sudo mkdir build'
-                sh 'cd build'
-                sh 'pwd'
-                sh 'ls'
-                sh 'ls ..'
-                sh 'sudo cmake ..'
-                sh 'sudo make'
+                sh '''
+                    echo cmake...
+                    pwd
+                    rm -rf build
+                    mkdir build
+                    cd build
+                    pwd
+                    ls
+                    ls ..
+                    cmake ..
+                    make
+                '''
                 
             }
         }
