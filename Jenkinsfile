@@ -9,7 +9,7 @@ pipeline {
                 sh 'pwd'
                 sh 'sudo rm -rf build'
                 sh 'sudo mkdir build'
-                sh 'sudo cd build'
+                sh 'cd build'
                 sh 'pwd'
                 sh 'ls'
                 sh 'ls ..'
