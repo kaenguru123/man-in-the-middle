@@ -7,14 +7,14 @@ pipeline {
             steps{
                 sh 'echo cmake...'
                 sh 'pwd'
-                sh 'rm -rf build'
-                sh 'mkdir build'
-                sh 'cd build'
+                sh 'sudo rm -rf build'
+                sh 'sudo mkdir build'
+                sh 'sudo cd build'
                 sh 'pwd'
                 sh 'ls'
                 sh 'ls ..'
-                sh 'cmake ..'
-                sh 'make'
+                sh 'sudo cmake ..'
+                sh 'sudo make'
                 
             }
         }
