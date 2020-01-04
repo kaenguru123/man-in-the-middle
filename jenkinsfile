@@ -1,3 +1,4 @@
+Jenkinsfile (Scripted Pipeline)
 node {  
     stage('Build') { 
         sh 'echo MyBuild'
