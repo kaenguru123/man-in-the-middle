@@ -7,14 +7,11 @@ pipeline {
             steps{
                 sh '''
                     echo cmake...
-                    pwd
                     rm -rf build
                     mkdir build
                     cd build
-                    pwd
-                    ls
-                    ls ..
                     cmake ..
+                    echo make...
                     make
                 '''
                 
